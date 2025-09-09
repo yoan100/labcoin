@@ -1,122 +1,313 @@
 <!DOCTYPE html>
 <html lang="bg">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8" />
 <title>Стая</title>
 <style>
-body{font-family:Arial;text-align:center;padding:20px;background:#f0f4ff;}
-#timer{font-size:48px;margin:20px;}
-.shake{display:inline-block;animation:shake 1s infinite}
-@keyframes shake{0%{transform:translate(1px,1px)rotate(0deg)}20%{transform:translate(-1px,-2px)rotate(-1deg)}40%{transform:translate(-3px,0px)rotate(1deg)}60%{transform:translate(3px,2px)rotate(0deg)}80%{transform:translate(1px,-1px)rotate(1deg)}100%{transform:translate(-1px,2px)rotate(-1deg)}}
-.follow-box{margin-top:30px;padding:15px;background:#fff;border:2px solid #3399ff;border-radius:10px;display:inline-block;cursor:pointer}
-.follow-box:hover{background:#eaf4ff}
-#announcement-container{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:1000;}
-#wheelCanvas{margin-top:20px;display:none;}
-#arrow{position:absolute;top:20px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:20px solid transparent;border-right:20px solid transparent;border-bottom:40px solid red;}
+  body{font-family:Arial;text-align:center;background:#f0f4ff;padding:18px;}
+  #game-title{color:#1f6feb;font-weight:700;margin-top:6px;}
+  #timer{font-size:44px;margin:12px;}
+  #announcement-container{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;}
+  .ann{background:#3399ff;color:#fff;padding:10px 18px;border-radius:8px;margin-top:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+  #wheelWrap{position:relative;display:inline-block;margin-top:12px;}
+  #arrow{position:absolute;top:-10px;left:50%;transform:translateX(-50%);z-index:20;width:0;height:0;border-left:24px solid transparent;border-right:24px solid transparent;border-bottom:44px solid #e74c3c;}
+  #wheelCanvas{background:#fff;border-radius:50%;}
+  #guessArea{display:none;margin-top:12px;}
+  #guessImage{max-width:500px;border:2px solid #ddd;border-radius:8px;}
+  #leaderboard{margin-top:12px;text-align:left;display:inline-block;background:#fff;padding:10px;border-radius:8px;min-width:260px;}
+  #usersList{margin-top:8px;}
+  #follow{margin-top:14px;padding:8px;border-radius:8px;border:2px solid #3399ff;display:inline-block;cursor:pointer;background:#fff;}
 </style>
 </head>
 <body>
-<h2 class="shake">Следващата игра започва след</h2>
-<div id="timer">10</div>
 
-<canvas id="wheelCanvas" width="500" height="500"></canvas>
-<div id="arrow"></div>
+  <div id="announcement-container"></div>
 
-<div class="follow-box" onclick="window.open('https://www.tiktok.com/@yoan29633','_blank')">Натисни тук, за да последваш YOAN!</div>
+  <h2 id="game-title">Очакване на игра...</h2>
+  <div id="timer">--</div>
 
-<div id="announcement-container"></div>
+  <div id="wheelWrap" style="display:none;">
+    <div id="arrow"></div>
+    <canvas id="wheelCanvas" width="500" height="500"></canvas>
+  </div>
+
+  <div id="guessArea">
+    <img id="guessImage" src="" alt="въпрос" />
+    <div>
+      <input id="guessInput" placeholder="Въведи отговора си тук" style="padding:8px;width:320px;border-radius:6px;border:1px solid #ccc;margin-top:8px;" />
+      <button onclick="submitGuess()" style="padding:8px 12px;margin-left:6px;background:#3399ff;color:#fff;border:none;border-radius:6px;cursor:pointer;">Изпрати</button>
+    </div>
+    <div id="questionInfo" style="margin-top:6px;color:#333;"></div>
+  </div>
+
+  <div id="usersList"></div>
+
+  <div id="leaderboard" style="display:none;">
+    <h4>Класация</h4>
+    <div id="boardEntries"></div>
+  </div>
+
+  <div id="follow" onclick="window.open('https://www.tiktok.com/@yoan29633','_blank')">Натисни тук, за да последваш YOAN!</div>
 
 <script>
-const urlParams = new URLSearchParams(window.location.search);
+const urlParams = new URLSearchParams(location.search);
 const code = urlParams.get('code');
-const username = urlParams.get('username');
-const ws = new WebSocket(`wss://${location.host}`);
-let users = [];
-let timer = 10;
+const username = decodeURIComponent(urlParams.get('username') || '');
+if (!code || !username) { alert('Липсва код или потребителско име'); location.href = '/'; }
 
-ws.onopen = ()=>ws.send(JSON.stringify({type:"joinRoom",code,username}));
+// WebSocket connection
+const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+let players = [];
+let currentGame = null;
+let mySubmittedGuessForQuestion = null;
 
-ws.onmessage=(msg)=>{
-  const data = JSON.parse(msg.data);
-  if(data.type==="userJoined") users=data.users;
-  if(data.type==="announcement") showAnnouncement(data.message);
-  if(data.type==="gameStart") startWheelGame(data.game);
-  if(data.type==="gameWinner") alert("Победител: "+data.winner);
+// Announcement helper
+function showAnnouncement(msg, duration=4000) {
+  const c = document.getElementById('announcement-container');
+  const el = document.createElement('div');
+  el.className = 'ann'; el.innerText = msg;
+  c.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, duration);
+}
+
+// Join room on open
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: 'joinRoom', code, username }));
 };
 
-function showAnnouncement(msg){
-  const ann = document.createElement("div");
-  ann.textContent=msg;
-  ann.style.background="#fffae6";
-  ann.style.border="2px solid #ffcc00";
-  ann.style.padding="10px";
-  ann.style.marginTop="5px";
-  ann.style.borderRadius="6px";
-  document.getElementById("announcement-container").appendChild(ann);
-  setTimeout(()=>ann.remove(),5000);
+// Handle server messages
+ws.onmessage = (ev) => {
+  const data = JSON.parse(ev.data);
+  // console.log("recv", data);
+  if (data.type === 'joined') {
+    document.getElementById('game-title').innerText = `Стая ${code} — чака се админ`;
+    players = data.users || [];
+    refreshUsers();
+  }
+  if (data.type === 'userJoined') {
+    players = data.users || players;
+    refreshUsers();
+    showAnnouncement(`${data.username} се присъедини`);
+  }
+  if (data.type === 'userLeft') {
+    players = data.users || players;
+    refreshUsers();
+    showAnnouncement(`${data.username} напусна`);
+  }
+  if (data.type === 'countdownStart') {
+    // show countdown timer and upcoming game title
+    currentGame = data.game;
+    document.getElementById('game-title').innerText = `${currentGame.name} — Награда: ${currentGame.prize}`;
+    startLocalCountdown(data.seconds || 10);
+  }
+  if (data.type === 'announcement') {
+    showAnnouncement(data.message, 5000);
+  }
+  if (data.type === 'gameStart') {
+    currentGame = data.game;
+    document.getElementById('game-title').innerText = `${currentGame.name} — Награда: ${currentGame.prize}`;
+    // show UI depending on type
+    if (currentGame.type === 'wheel') startWheelClient(currentGame);
+    if (currentGame.type === 'guess') prepareGuessClient();
+  }
+  if (data.type === 'gameFinished') {
+    if (data.result && data.result.winner) {
+      showAnnouncement(`Победител: ${data.result.winner}`, 5000);
+    }
+    // hide UIs
+    hideAllGameUI();
+  }
+  if (data.type === 'guessQuestion') {
+    // show cropped image with cropping seed & zoom
+    showGuessQuestion(data);
+  }
+  if (data.type === 'guessQuestionResult') {
+    // show who got it right
+    const cp = data.correctPlayers || [];
+    if (cp.length) showAnnouncement(`Правилни: ${cp.join(', ')}`, 5000);
+    else showAnnouncement(`Няма верни отговори. Верен отговор: ${data.correctAnswer}`, 5000);
+  }
+  if (data.type === 'guessGameFinished') {
+    // show leaderboard
+    displayLeaderboard(data.leaderboard || [], data.scores || {});
+  }
+  if (data.type === 'allGamesFinished') {
+    showAnnouncement('Всички игри приключиха!', 6000);
+    displayLeaderboard(Object.entries(data.scores || {}).map(([u,p])=>({username:u,points:p})).sort((a,b)=>b.points-a.points).slice(0,3), data.scores || {});
+  }
+  if (data.type === 'error') {
+    alert("ГРЕШКА: " + data.message);
+  }
+};
+
+// UI helpers
+function refreshUsers(){
+  const ul = document.getElementById('usersList');
+  ul.innerHTML = `<b>Потребители в стаята (${players.length}):</b> ${players.join(', ')}`;
 }
 
-function startWheelGame(game){
-  const canvas = document.getElementById("wheelCanvas");
-  const ctx = canvas.getContext("2d");
-  canvas.style.display="block";
-  const segments = users.length;
-  const anglePer = 2*Math.PI/segments;
-  let startAngle = 0;
-  const colors=["#ff9999","#99ff99","#9999ff","#ffcc99","#cc99ff","#99ffff"];
-  
-  // draw wheel
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  for(let i=0;i<segments;i++){
-    ctx.beginPath();
-    ctx.moveTo(250,250);
-    ctx.arc(250,250,200,startAngle,startAngle+anglePer);
-    ctx.fillStyle=colors[i%colors.length];
-    ctx.fill();
-    ctx.stroke();
-    ctx.save();
-    ctx.translate(250,250);
-    ctx.rotate(startAngle+anglePer/2);
-    ctx.fillStyle="#000";
-    ctx.font="16px Arial";
-    ctx.fillText(users[i],110,0);
-    ctx.restore();
-    startAngle+=anglePer;
-  }
+function startLocalCountdown(seconds){
+  let t = seconds;
+  const timerEl = document.getElementById('timer');
+  timerEl.innerText = t;
+  const iv = setInterval(()=> {
+    t--;
+    timerEl.innerText = t > 0 ? t : 0;
+    if (t <= 0) clearInterval(iv);
+  }, 1000);
+}
 
-  // spin animation
-  let rotation = 0;
-  let speed = 0.3+Math.random()*0.5;
-  const spin = setInterval(()=>{
-    rotation+=speed;
+function hideAllGameUI(){
+  document.getElementById('wheelWrap').style.display = 'none';
+  document.getElementById('guessArea').style.display = 'none';
+}
+
+// ================= WHEEL (client draws wheel; server chooses winner)
+function startWheelClient(game) {
+  hideAllGameUI();
+  const canvas = document.getElementById('wheelCanvas');
+  const wrap = document.getElementById('wheelWrap');
+  wrap.style.display = 'inline-block';
+  const ctx = canvas.getContext('2d');
+  const colors = ["#FF6384","#36A2EB","#FFCE56","#FF9F40","#4BC0C0","#9966FF","#FF6666","#66FF66"];
+  const users = players.slice();
+  if (users.length === 0) {
+    showAnnouncement('Няма играчи за колелото', 4000);
+    return;
+  }
+  const total = users.length;
+  const arc = Math.PI*2 / total;
+  let startAngle = 0;
+
+  function drawWheel(angleOffset=0){
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    let angle = rotation;
-    for(let i=0;i<segments;i++){
+    for (let i=0;i<total;i++){
       ctx.beginPath();
       ctx.moveTo(250,250);
-      ctx.arc(250,250,200,angle,angle+anglePer);
-      ctx.fillStyle=colors[i%colors.length];
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.arc(250,250,240, startAngle + i*arc + angleOffset, startAngle + (i+1)*arc + angleOffset);
+      ctx.lineTo(250,250);
       ctx.fill();
-      ctx.stroke();
+      // text
       ctx.save();
       ctx.translate(250,250);
-      ctx.rotate(angle+anglePer/2);
-      ctx.fillStyle="#000";
-      ctx.font="16px Arial";
-      ctx.fillText(users[i],110,0);
+      ctx.rotate(startAngle + i*arc + arc/2 + angleOffset);
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#fff";
+      ctx.font = "18px Arial";
+      const label = users[i].length>18 ? users[i].slice(0,15)+'...' : users[i];
+      ctx.fillText(label, 230, 8);
       ctx.restore();
-      angle+=anglePer;
     }
-    speed*=0.97;
-    if(speed<0.002){clearInterval(spin);}
-  },16);
+  }
+
+  drawWheel(0);
+
+  // spin animation
+  let angle = 0;
+  let speed = 0.5 + Math.random()*1.2;
+  const decel = 0.985;
+  const anim = setInterval(()=> {
+    angle += speed * 0.02;
+    drawWheel(angle);
+    speed *= decel;
+    if (speed < 0.003) {
+      clearInterval(anim);
+      // Let server announce winner; but also compute index client-side for visual consistency:
+      // compute degrees to align top arrow
+      const degrees = (angle * 180/Math.PI) + 90;
+      const arcd = 360 / total;
+      const idx = Math.floor((360 - degrees % 360) / arcd) % total;
+      const winner = users[idx];
+      // show short popup; final winner will come from server
+      showAnnouncement(`Колелото завъртя... (победител се очаква от админа)`, 3500);
+    }
+  }, 16);
 }
 
-// countdown
-setInterval(()=>{
-  if(timer>0) timer--;
-  document.getElementById("timer").textContent=timer;
-},1000);
+// ================= GUESS GAME (ПОЗНАЙ КОЙНА)
+// Server provides imageURL and crop {seed, zoom} and seconds
+function showGuessQuestion(data) {
+  hideAllGameUI();
+  const imgEl = document.getElementById('guessImage');
+  const area = document.getElementById('guessArea');
+  const info = document.getElementById('questionInfo');
+  area.style.display = 'block';
+  mySubmittedGuessForQuestion = null;
+  imgEl.src = data.imageURL + '?_=' + Date.now(); // avoid cache
+  // After image load, draw zoomed/cropped view onto canvas and replace src with data URL
+  imgEl.onload = () => {
+    // We'll programmatically crop by drawing a random crop portion on a canvas then set as src
+    const seed = data.crop.seed || Math.floor(Math.random()*1000000);
+    const zoom = data.crop.zoom || 2;
+    const canvas = document.createElement('canvas');
+    const size = 500;
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    // random generator from seed
+    function rng(s) { let x = s % 2147483647; return ()=> { x = (x * 16807) % 2147483647; return (x-1)/2147483646; }; }
+    const r = rng(seed);
+    const iw = imgEl.naturalWidth, ih = imgEl.naturalHeight;
+    // calculate crop center using rng
+    const cx = Math.floor(r() * iw);
+    const cy = Math.floor(r() * ih);
+    // crop size determined by zoom (higher zoom = smaller crop area)
+    const cropW = Math.max(80, Math.floor(iw / zoom));
+    const cropH = Math.max(80, Math.floor(ih / zoom));
+    // ensure crop inside image
+    const sx = Math.max(0, Math.min(iw - cropW, cx - Math.floor(cropW/2)));
+    const sy = Math.max(0, Math.min(ih - cropH, cy - Math.floor(cropH/2)));
+    // draw scaled crop to canvas
+    ctx.drawImage(imgEl, sx, sy, cropW, cropH, 0, 0, size, size);
+    // slight overlay to make guessing harder (vignette)
+    ctx.fillStyle = 'rgba(0,0,0,0.03)'; ctx.fillRect(0,0,size,size);
+    // set as image src
+    imgEl.src = canvas.toDataURL();
+  };
+
+  info.innerText = `Време за отговор: ${data.seconds} секунди. Въпрос ${data.questionNumber} от ${data.totalQuestions}`;
+  // clear input
+  document.getElementById('guessInput').value = '';
+  // set timeout to disable input when time up
+  setTimeout(()=> {
+    document.getElementById('guessInput').disabled = true;
+  }, (data.seconds || 10)*1000);
+}
+
+// submit guess
+function submitGuess() {
+  const val = document.getElementById('guessInput').value.trim();
+  if (!val) { alert('Въведете отговор'); return; }
+  // send to server with questionIndex - server uses current question index (it tracks)
+  ws.send(JSON.stringify({ type: 'submitGuess', code, username, questionIndex: 0, guess: val }));
+  // we send questionIndex:0 because server maps by its own counter; server accepts and aggregates by current question it manages
+  mySubmittedGuessForQuestion = val;
+  showAnnouncement('Отговор изпратен', 1500);
+}
+
+// leaderboard display
+function displayLeaderboard(list, allScores) {
+  document.getElementById('leaderboard').style.display = 'block';
+  const el = document.getElementById('boardEntries');
+  el.innerHTML = '';
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div>Няма резултати</div>';
+    return;
+  }
+  list.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.innerHTML = `${i+1}. <b>${p.username}</b> — ${p.points} точки`;
+    el.appendChild(div);
+  });
+  // show full scores optionally
+  const allDiv = document.createElement('div');
+  allDiv.style.marginTop = '8px';
+  allDiv.innerHTML = '<hr><b>Всички точки:</b><br>' + Object.entries(allScores).map(([u,p])=>`${u}: ${p}`).join('<br>');
+  el.appendChild(allDiv);
+}
+
+// UI initial
+document.getElementById('timer').innerText = '--';
 </script>
 </body>
 </html>
