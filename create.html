@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<title>Админ панел</title>
+<style>
+body {font-family:Arial;text-align:center;padding:50px;background:#f9fbff;}
+input, textarea {width:80%;padding:8px;margin:5px;}
+button {padding:10px 20px;background:#3399ff;color:#fff;border:none;border-radius:6px;cursor:pointer;margin:5px;}
+button:hover {background:#1d7ddb;}
+</style>
+</head>
+<body>
+<h1>Админ панел</h1>
+
+<h3>Създай стая</h3>
+<label>Брой игри</label><br>
+<input type="number" id="games-count" min="1" value="1"><br>
+<label>Време преди всяка игра (секунди)</label><br>
+<input type="number" id="time-before" min="5" value="10"><br>
+<label>Награда за Колело на късмета</label><br>
+<input type="text" id="wheel-prize"><br>
+<button onclick="createRoom()">Създай стая</button>
+
+<h3>Прати съобщение</h3>
+<input type="text" id="announce-room" placeholder="Код на стаята"><br>
+<input type="text" id="announce-message" placeholder="Съобщение"><br>
+<button onclick="sendAnnouncement()">Прати</button>
+
+<h3>Управление</h3>
+<button onclick="deleteAllRooms()">Изтрий всички стаи</button>
+
+<pre id="output"></pre>
+
+<script>
+const ws = new WebSocket(`wss://${location.host}`);
+
+function log(msg){document.getElementById("output").textContent += msg + "\n";}
+
+function createRoom(){
+  const code = Math.floor(100000 + Math.random()*900000).toString();
+  const games = [{ name: "Колело на късмета", prize: document.getElementById("wheel-prize").value }];
+  ws.send(JSON.stringify({ type:"createRoom", code, timeBefore: parseInt(document.getElementById("time-before").value), games }));
+  log("Изпратено искане за създаване на стая с код " + code);
+}
+
+function sendAnnouncement(){
+  const code=document.getElementById("announce-room").value;
+  const message=document.getElementById("announce-message").value;
+  ws.send(JSON.stringify({ type:"announcement", code, message }));
+  log("Изпратено съобщение към стая " + code);
+}
+
+function deleteAllRooms(){
+  ws.send(JSON.stringify({ type:"deleteAllRooms" }));
+  log("Изтриване на всички стаи...");
+}
+
+ws.onmessage = (msg) => {
+  const data = JSON.parse(msg.data);
+  if(data.type==="roomCreated") log("Стая създадена: " + data.code);
+  if(data.type==="roomsDeleted") log("Всички стаи изтрити!");
+};
+</script>
+</body>
+</html>
