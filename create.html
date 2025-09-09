@@ -1,66 +1,130 @@
 <!DOCTYPE html>
 <html lang="bg">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8" />
 <title>Админ панел</title>
 <style>
-body {font-family:Arial;text-align:center;padding:50px;background:#f9fbff;}
-input, textarea {width:80%;padding:8px;margin:5px;}
-button {padding:10px 20px;background:#3399ff;color:#fff;border:none;border-radius:6px;cursor:pointer;margin:5px;}
-button:hover {background:#1d7ddb;}
+  body{font-family:Arial, sans-serif;background:#f9fbff;padding:30px;text-align:center;}
+  input,select,textarea{width:80%;padding:8px;margin:8px 0;border-radius:6px;border:1px solid #ccc;}
+  button{padding:10px 18px;margin:6px;background:#3399ff;color:#fff;border:none;border-radius:8px;cursor:pointer;}
+  .small{width:40%;}
+  pre{background:#fff;padding:10px;border-radius:8px;max-height:200px;overflow:auto;text-align:left;}
 </style>
 </head>
 <body>
-<h1>Админ панел</h1>
+  <h1>Админ панел</h1>
 
-<h3>Създай стая</h3>
-<label>Брой игри</label><br>
-<input type="number" id="games-count" min="1" value="1"><br>
-<label>Време преди всяка игра (секунди)</label><br>
-<input type="number" id="time-before" min="5" value="10"><br>
-<label>Награда за Колело на късмета</label><br>
-<input type="text" id="wheel-prize"><br>
-<button onclick="createRoom()">Създай стая</button>
+  <h3>Създай стая</h3>
+  <label>Брой игри</label><br>
+  <input type="number" id="games-count" min="1" value="1"><br>
 
-<h3>Прати съобщение</h3>
-<input type="text" id="announce-room" placeholder="Код на стаята"><br>
-<input type="text" id="announce-message" placeholder="Съобщение"><br>
-<button onclick="sendAnnouncement()">Прати</button>
+  <label>Време преди всяка игра (секунди)</label><br>
+  <input type="number" id="time-before" min="5" value="10"><br>
 
-<h3>Управление</h3>
-<button onclick="deleteAllRooms()">Изтрий всички стаи</button>
+  <label>Максимален брой потребители (по избор)</label><br>
+  <input type="number" id="max-users" placeholder="Неограничен"><br>
 
-<pre id="output"></pre>
+  <h4>Добави игри (избери тип и награда)</h4>
+  <div id="games-list"></div>
+  <button onclick="addGame()">Добави игра</button>
+  <p>Типове: wheel = Колело на късмета, guess = ПОЗНАЙ КОЙНА</p>
+
+  <br>
+  <button onclick="createRoom()">Създай стая</button>
+
+  <h3>Управление</h3>
+  <button onclick="deleteAllRooms()">Изтрий всички стаи</button>
+
+  <h3>Прати съобщение (live)</h3>
+  <input id="announce-room" placeholder="Код на стаята"><br>
+  <input id="announce-message" placeholder="Съобщение"><br>
+  <button onclick="sendAnnouncement()">Прати</button>
+
+  <h3>Стартирай игри</h3>
+  <input id="start-room-code" placeholder="Код на стаята"><br>
+  <button onclick="startRoom()">Стартирай стаята (игрите ще започнат)</button>
+
+  <h3>Лог</h3>
+  <pre id="log"></pre>
 
 <script>
-const ws = new WebSocket(`wss://${location.host}`);
+const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+const logEl = document.getElementById('log');
 
-function log(msg){document.getElementById("output").textContent += msg + "\n";}
+function lg(t){ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+
+ws.onopen = () => lg("WebSocket свързан към сървъра");
+ws.onmessage = (ev) => {
+  const d = JSON.parse(ev.data);
+  if (d.type === 'roomCreated') lg("Стая създадена: " + d.code);
+  if (d.type === 'roomsDeleted') lg("Всички стаи изтрити");
+  if (d.type === 'error') lg("ГРЕШКА: " + d.message);
+};
+
+function addGame(){
+  const container = document.getElementById('games-list');
+  const idx = container.children.length;
+  const div = document.createElement('div');
+  div.innerHTML = `
+    <select class="game-type">
+      <option value="wheel">Колело на късмета</option>
+      <option value="guess">ПОЗНАЙ КОЙНА</option>
+    </select>
+    <input class="game-name" placeholder="Име (за админа)" value="">
+    <input class="game-prize" placeholder="Награда (текст)">
+    <button onclick="this.parentNode.remove()">Премахни</button>
+  `;
+  div.style.margin = "8px";
+  container.appendChild(div);
+}
 
 function createRoom(){
   const code = Math.floor(100000 + Math.random()*900000).toString();
-  const games = [{ name: "Колело на късмета", prize: document.getElementById("wheel-prize").value }];
-  ws.send(JSON.stringify({ type:"createRoom", code, timeBefore: parseInt(document.getElementById("time-before").value), games }));
-  log("Изпратено искане за създаване на стая с код " + code);
-}
+  const gamesCount = parseInt(document.getElementById('games-count').value);
+  const timeBefore = parseInt(document.getElementById('time-before').value);
+  const maxUsers = document.getElementById('max-users').value || null;
 
-function sendAnnouncement(){
-  const code=document.getElementById("announce-room").value;
-  const message=document.getElementById("announce-message").value;
-  ws.send(JSON.stringify({ type:"announcement", code, message }));
-  log("Изпратено съобщение към стая " + code);
+  // collect games
+  const games = [];
+  document.querySelectorAll('#games-list > div').forEach(div => {
+    const type = div.querySelector('.game-type').value;
+    const name = div.querySelector('.game-name').value || (type === 'wheel' ? 'Колело на късмета' : 'ПОЗНАЙ КОЙНА');
+    const prize = div.querySelector('.game-prize').value || '';
+    // default points
+    if (type === 'wheel') {
+      games.push({ type:'wheel', name, prize, pointsForWinner: 20 });
+    } else {
+      games.push({ type:'guess', name, prize, pointsPerCorrect: 10 });
+    }
+  });
+
+  // If no games added, add wheel by default
+  if (games.length === 0) games.push({ type:'wheel', name:'Колело на късмета', prize:'', pointsForWinner:20 });
+
+  const payload = { type: 'createRoom', code, gamesCount, timeBefore, maxUsers, games };
+  ws.send(JSON.stringify(payload));
+  lg("Изпратено искане за създаване на стая: " + code);
 }
 
 function deleteAllRooms(){
-  ws.send(JSON.stringify({ type:"deleteAllRooms" }));
-  log("Изтриване на всички стаи...");
+  ws.send(JSON.stringify({ type: 'deleteAllRooms' }));
+  lg("Изпращане: изтриване на всички стаи");
 }
 
-ws.onmessage = (msg) => {
-  const data = JSON.parse(msg.data);
-  if(data.type==="roomCreated") log("Стая създадена: " + data.code);
-  if(data.type==="roomsDeleted") log("Всички стаи изтрити!");
-};
+function sendAnnouncement(){
+  const code = document.getElementById('announce-room').value.trim();
+  const message = document.getElementById('announce-message').value.trim();
+  if (!code || !message){ alert('Въведете код и съобщение'); return; }
+  ws.send(JSON.stringify({ type: 'announcement', code, message }));
+  lg("Изпратено съобщение към " + code);
+}
+
+function startRoom(){
+  const code = document.getElementById('start-room-code').value.trim();
+  if (!code) { alert('Въведете код'); return; }
+  ws.send(JSON.stringify({ type: 'startRoom', code }));
+  lg("Стартиране на стая: " + code);
+}
 </script>
 </body>
 </html>
