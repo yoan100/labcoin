@@ -1,0 +1,16 @@
+{
+  "name": "labcoin-stream",
+  "version": "1.0.0",
+  "description": "Labcoin streaming game platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.13.0"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
