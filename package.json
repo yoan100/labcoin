@@ -1,16 +1,22 @@
 {
-  "name": "labcoin-stream",
+  "name": "labcoin-games",
   "version": "1.0.0",
-  "description": "Labcoin streaming game platform",
+  "description": "Labcoin streaming games platform with spin wheel and Познай Койна",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "keywords": [
+    "labcoin",
+    "games",
+    "spin-wheel",
+    "websocket",
+    "guess-coin"
+  ],
+  "author": "Yoan",
+  "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "ws": "^8.13.0"
-  },
-  "engines": {
-    "node": "22.x"
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
   }
 }
